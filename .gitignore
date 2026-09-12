@@ -1,9 +1,7 @@
-# Byte-compiled / optimized / DLL files
+# Python Byte-compiled / Optimized files
 __pycache__/
 *.py[cod]
 *$py.class
-
-# C extensions
 *.so
 
 # Virtual Environments
@@ -14,15 +12,22 @@ ENV/
 env.bak/
 venv.bak/
 
-# Environment variables & secrets
+# Environment Variables & Secrets (Crucial: contains SECRET_KEY & DB connection strings)
 .env
 .env.local
 .env.*.local
+!.env.example
 
-# ML Models & Datasets (keep trained binaries out of Git tracking)
-app/ml/saved_models/*.pkl
-app/ml/saved_models/*.json
-app/ml/saved_models/*.joblib
+# Database Files (Local SQLite instance created by app/db.py)
+*.db
+*.sqlite3
+*.sqlite
+
+# Generated Data & ML Models (Obsolete and newly generated solar/wind model artifacts)
+app/data/*.csv
+app/ml/saved_models/**/*.pkl
+app/ml/saved_models/**/*.json
+app/ml/saved_models/**/*.joblib
 !app/ml/saved_models/.gitkeep
 
 # IDEs & Code Editors
@@ -31,17 +36,17 @@ app/ml/saved_models/*.joblib
 *.swp
 *.swo
 
-# Testing & Coverage
+# Testing, Coverage & Logs
 .pytest_cache/
 .coverage
 htmlcov/
-
-# Logs & OS Specific Files
 *.log
+
+# System & OS Files
 .DS_Store
 Thumbs.db
 
-node_modules
-dist
-.DS_Store
-*.local
+# Frontend Dependencies & Build Output (if kept in same repo)
+node_modules/
+dist/
+build/
