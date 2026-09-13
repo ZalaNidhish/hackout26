@@ -12,8 +12,8 @@ export const STATUS_META = {
     color: '#c2410c',
     bg: '#ffedd5',
     border: '#c2410c',
-    dotClass: 'bg-yellow-700',
-    badgeClass: 'text-yellow-900 bg-yellow-100 border-yellow-300',
+    dotClass: 'bg-orange-700',
+    badgeClass: 'text-orange-900 bg-orange-100 border-orange-300',
   },
   shortage: {
     label: 'Shortage',

@@ -1,57 +1,134 @@
-import { createContext, useContext, useEffect, useState, useCallback } from 'react'
-import {
-  getToken, setToken, clearToken,
-  login as apiLogin, register as apiRegister, getMe,
-} from '../api/client.js'
+import { createContext, useContext, useEffect, useState } from 'react'
+import { getMe, getStoredToken, getStoredUser, login as apiLogin, logout as apiLogout, register as apiRegister } from '../api/client.js'
 
 const AuthContext = createContext(null)
 
 export function AuthProvider({ children }) {
-  const [user, setUser] = useState(null)
-  const [loading, setLoading] = useState(true) // true while we check for an existing session
+  const [user, setUser] = useState(getStoredUser)
+  const [token, setToken] = useState(getStoredToken)
+  const [loading, setLoading] = useState(true)
+  const [authError, setAuthError] = useState(null)
 
+  // Verify session on mount if token exists
   useEffect(() => {
-    const token = getToken()
-    if (!token) {
-      setLoading(false)
-      return
+    let cancelled = false
+
+    async function checkAuth() {
+      const stored = getStoredToken()
+      if (!stored) {
+        if (!cancelled) {
+          setUser(null)
+          setLoading(false)
+        }
+        return
+      }
+
+      try {
+        const me = await getMe()
+        if (!cancelled) {
+          setUser(me)
+          setToken(stored)
+          localStorage.setItem('auth_user', JSON.stringify(me))
+        }
+      } catch (err) {
+        if (!cancelled) {
+          const storedU = getStoredUser()
+          if (storedU) setUser(storedU)
+          else {
+            setUser(null)
+            setToken(null)
+          }
+        }
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
     }
-    // We have a token from a previous session — verify it's still valid
-    // and fetch who it belongs to, rather than trusting it blindly.
-    getMe()
-      .then((me) => setUser(me))
-      .catch(() => clearToken())
-      .finally(() => setLoading(false))
+
+    checkAuth()
+
+    const handleUnauthorized = () => {
+      setUser(null)
+      setToken(null)
+    }
+
+    const handleLogout = () => {
+      setUser(null)
+      setToken(null)
+    }
+
+    window.addEventListener('auth:unauthorized', handleUnauthorized)
+    window.addEventListener('auth:logout', handleLogout)
+
+    return () => {
+      cancelled = true
+      window.removeEventListener('auth:unauthorized', handleUnauthorized)
+      window.removeEventListener('auth:logout', handleLogout)
+    }
   }, [])
 
-  const login = useCallback(async (email, password) => {
-    const data = await apiLogin(email, password)
-    setToken(data.access_token)
-    setUser(data.user)
-    return data.user
-  }, [])
+  const login = async (email, password) => {
+    setAuthError(null)
+    try {
+      const data = await apiLogin({ email, password })
+      setUser(data.user || { email })
+      setToken(data.access_token)
+      return { success: true, data }
+    } catch (err) {
+      const message =
+        err.response?.data?.detail ||
+        err.response?.data?.message ||
+        'Authentication failed. Please check your email and password.'
+      setAuthError(message)
+      return { success: false, error: message }
+    }
+  }
 
-  const register = useCallback(async (email, password) => {
-    const data = await apiRegister(email, password)
-    setToken(data.access_token)
-    setUser(data.user)
-    return data.user
-  }, [])
+  const register = async (email, password) => {
+    setAuthError(null)
+    try {
+      const data = await apiRegister({ email, password })
+      setUser(data.user || { email })
+      setToken(data.access_token)
+      return { success: true, data }
+    } catch (err) {
+      const message =
+        err.response?.data?.detail ||
+        err.response?.data?.message ||
+        'Registration failed. Please check your credentials and try again.'
+      setAuthError(message)
+      return { success: false, error: message }
+    }
+  }
 
-  const logout = useCallback(() => {
-    clearToken()
+  const logout = () => {
+    apiLogout()
     setUser(null)
-  }, [])
+    setToken(null)
+  }
 
   return (
-    <AuthContext.Provider value={{ user, loading, login, register, logout, isAuthenticated: !!user }}>
+    <AuthContext.Provider
+      value={{
+        user,
+        token,
+        isAuthenticated: Boolean(token),
+        loading,
+        authError,
+        login,
+        register,
+        logout,
+        setAuthError,
+      }}
+    >
       {children}
     </AuthContext.Provider>
   )
 }
 
 export function useAuth() {
-  const ctx = useContext(AuthContext)
-  if (!ctx) throw new Error('useAuth must be used within an AuthProvider')
-  return ctx
+  const context = useContext(AuthContext)
+  if (!context) {
+    throw new Error('useAuth must be used within an AuthProvider')
+  }
+  return context
 }

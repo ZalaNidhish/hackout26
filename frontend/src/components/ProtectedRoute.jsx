@@ -6,8 +6,11 @@ export default function ProtectedRoute({ children }) {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-slate-950">
-        <div className="text-sm text-slate-400 dark:text-slate-500">Loading…</div>
+      <div className="flex min-h-screen items-center justify-center bg-slate-50 dark:bg-slate-950">
+        <div className="flex flex-col items-center gap-3">
+          <div className="h-10 w-10 animate-spin rounded-full border-4 border-slate-300 border-t-navy dark:border-slate-700 dark:border-t-sky-500" />
+          <p className="text-xs font-semibold text-slate-500 dark:text-slate-400">Initializing Grid Telemetry...</p>
+        </div>
       </div>
     )
   }

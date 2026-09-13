@@ -21,7 +21,10 @@ import {
   Gauge,
   Layers,
   Sparkles,
+  Sun,
   TrendingUp,
+  Waves,
+  Wind,
   Zap,
 } from 'lucide-react'
 import { formatShortTime, statusStyle } from '../statusConfig.js'
@@ -51,7 +54,7 @@ function buildShadeSegments(points) {
   return segments
 }
 
-function ChartTooltip({ active, payload, viewMode }) {
+function ChartTooltip({ active, payload, viewMode, isWind }) {
   if (!active || !payload || !payload.length) return null
   const point = payload[0]?.payload
   if (!point) return null
@@ -60,11 +63,14 @@ function ChartTooltip({ active, payload, viewMode }) {
   const demand = Number(point.demand_mw ?? 0)
   const p10 = Number(point.p10 ?? 0)
   const p90 = Number(point.p90 ?? 0)
+  const windSpeed100m = Number(point.wind_speed_100m ?? point.wind_speed_10m ?? 0)
+  const windDir = point.wind_direction_cardinal || (point.wind_direction ? `${point.wind_direction}°` : '')
+  const windGusts = Number(point.wind_gusts ?? 0)
   const margin = p50 - demand
   const isPositiveMargin = margin >= 0
 
   return (
-    <div className="min-w-[260px] rounded-2xl border border-border/90 bg-white/95 p-4 text-xs shadow-2xl backdrop-blur-md transition-all">
+    <div className="min-w-[270px] rounded-2xl border border-border/90 bg-white/95 p-4 text-xs shadow-2xl backdrop-blur-md transition-all">
       {/* Tooltip Header */}
       <div className="flex items-center justify-between border-b border-border/70 pb-2 mb-2.5">
         <div className="flex items-center gap-2">
@@ -77,6 +83,27 @@ function ChartTooltip({ active, payload, viewMode }) {
           +{point.hour_offset}h
         </span>
       </div>
+
+      {/* Real-time Wind Vector Highlight if wind data exists */}
+      {isWind && windSpeed100m > 0 && (
+        <div className="mb-2.5 rounded-lg bg-sky-50/80 p-2 border border-sky-200/70 text-sky-950">
+          <div className="flex items-center justify-between">
+            <span className="flex items-center gap-1 text-[11px] font-bold text-sky-900">
+              <Wind size={12} className="text-sky-600" />
+              Wind Velocity (100m):
+            </span>
+            <span className="font-mono font-extrabold text-xs text-sky-900">
+              {windSpeed100m.toFixed(1)} m/s {windDir && `(${windDir})`}
+            </span>
+          </div>
+          {windGusts > 0 && (
+            <div className="mt-1 flex items-center justify-between text-[10px] text-sky-700">
+              <span>Peak Gusts:</span>
+              <span className="font-mono font-bold">{windGusts.toFixed(1)} m/s</span>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Net Balance Highlight in Balance View */}
       {viewMode === 'balance' ? (
@@ -94,7 +121,7 @@ function ChartTooltip({ active, payload, viewMode }) {
             </span>
             <span
               className={`rounded px-1.5 py-0.5 text-[10px] font-bold ${
-                isPositiveMargin ? 'bg-okbg text-ok' : 'bg-dangerbg text-danger'
+                isPositiveMargin ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-950/60 dark:text-yellow-300' : 'bg-dangerbg text-danger'
               }`}
             >
               {isPositiveMargin ? 'Surplus Export' : 'Deficit Power'}
@@ -153,7 +180,7 @@ function ChartTooltip({ active, payload, viewMode }) {
         </span>
         {point.severe_weather && (
           <span className="flex items-center gap-1 text-[10px] font-bold text-amber-600">
-            <CloudLightning size={11} /> Storm Alert
+            <CloudLightning size={11} /> High Wind Alert
           </span>
         )}
       </div>
@@ -188,17 +215,18 @@ function CustomXAxisTick({ x, y, payload, points }) {
   )
 }
 
-export default function ForecastChart({ points, windowHours, onWindowChange, loading, capacity }) {
-  // View mode switcher: 'generation' (default) vs 'balance' (Net Power Balance)
+export default function ForecastChart({ points, windowHours, onWindowChange, loading, capacity, plantType = 'solar' }) {
   const [viewMode, setViewMode] = useState('generation')
 
-  // Layer toggles for interactive exploration
+  // Layer toggles
   const [showP50, setShowP50] = useState(true)
   const [showDemand, setShowDemand] = useState(true)
   const [showBand, setShowBand] = useState(true)
   const [showShading, setShowShading] = useState(true)
   const [showCapacity, setShowCapacity] = useState(true)
+  const [showWindOverlay, setShowWindOverlay] = useState(true)
 
+  const isWind = plantType?.toLowerCase() === 'wind'
   const shadeSegments = useMemo(() => buildShadeSegments(points || []), [points])
 
   const chartData = useMemo(
@@ -211,12 +239,12 @@ export default function ForecastChart({ points, windowHours, onWindowChange, loa
           ...p,
           net_margin: margin,
           bandRange: Math.max(0, (p.p90 ?? 0) - (p.p10 ?? 0)),
+          wind_speed: Number(p.wind_speed_100m ?? p.wind_speed_10m ?? 0),
         }
       }),
     [points]
   )
 
-  // Calculate zero offset for Net Balance split gradient
   const zeroOffset = useMemo(() => {
     if (!chartData || chartData.length === 0) return 0.5
     let maxM = 0
@@ -230,7 +258,6 @@ export default function ForecastChart({ points, windowHours, onWindowChange, loa
     return maxM / (maxM - minM)
   }, [chartData])
 
-  // Comprehensive situational energy & power metrics
   const summary = useMemo(() => {
     if (!Array.isArray(points) || points.length === 0) return null
     let maxP50 = 0
@@ -238,16 +265,20 @@ export default function ForecastChart({ points, windowHours, onWindowChange, loa
     let sumP50 = 0
     let sumDemand = 0
     let maxDemand = 0
+    let maxWindSpeed = 0
     let surplusHrs = 0
     let shortageHrs = 0
 
     points.forEach((p) => {
       const p50 = Number(p.p50 ?? 0)
       const dem = Number(p.demand_mw ?? 0)
+      const wSpeed = Number(p.wind_speed_100m ?? p.wind_speed_10m ?? 0)
+
       if (p50 > maxP50) {
         maxP50 = p50
         peakHour = p.hour_offset
       }
+      if (wSpeed > maxWindSpeed) maxWindSpeed = wSpeed
       sumP50 += p50
       sumDemand += dem
       if (dem > maxDemand) maxDemand = dem
@@ -268,6 +299,7 @@ export default function ForecastChart({ points, windowHours, onWindowChange, loa
       peakHour,
       avgP50: avgP50.toFixed(1),
       peakDemand: maxDemand.toFixed(1),
+      maxWindSpeed: maxWindSpeed.toFixed(1),
       totalGenMWh,
       totalDemandMWh,
       netMWh,
@@ -282,20 +314,30 @@ export default function ForecastChart({ points, windowHours, onWindowChange, loa
       {/* Header: Title, View Switcher & Window Control */}
       <div className="mb-4 flex flex-col gap-4 border-b border-border/50 pb-4 lg:flex-row lg:items-center lg:justify-between">
         <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-steel/10 text-steel">
-            <TrendingUp size={20} strokeWidth={2.25} />
+          <div
+            className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl shadow-2xs ${
+              isWind
+                ? 'bg-sky-50 text-sky-600 border border-sky-200'
+                : 'bg-amber-50 text-amber-600 border border-amber-200'
+            }`}
+          >
+            {isWind ? <Wind size={20} strokeWidth={2.25} /> : <Sun size={20} strokeWidth={2.25} />}
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <h2 className="text-base font-bold text-navy tracking-tight">Generation Forecast</h2>
+              <h2 className="text-base font-bold text-navy tracking-tight">
+                {isWind ? 'Real-Time Wind Generation Forecast' : 'Solar Generation Forecast'}
+              </h2>
               <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700 border border-emerald-200">
                 <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                AI Ensemble
+                {isWind ? 'Live Wind Telemetry' : 'Solar Radiation Model'}
               </span>
             </div>
             <p className="text-xs text-slate-500 mt-0.5">
               {viewMode === 'generation'
-                ? 'P10–P90 probabilistic uncertainty band vs. committed dispatch demand'
+                ? isWind
+                  ? 'Turbine power curve & wind speed dynamics vs committed dispatch targets'
+                  : 'P10–P90 probabilistic uncertainty band vs committed dispatch demand'
                 : 'Net instantaneous power balance (P50 Expected − Committed Demand)'}
             </p>
           </div>
@@ -303,7 +345,7 @@ export default function ForecastChart({ points, windowHours, onWindowChange, loa
 
         {/* View Mode Switcher + Horizon Control */}
         <div className="flex flex-wrap items-center gap-2.5">
-          {/* Dual Perspective Toggle: Curve vs Net Margin */}
+          {/* Dual Perspective Toggle */}
           <div className="flex items-center rounded-xl border border-border/80 bg-slate-100/90 p-1 shadow-inner text-xs font-semibold">
             <button
               onClick={() => setViewMode('generation')}
@@ -348,7 +390,7 @@ export default function ForecastChart({ points, windowHours, onWindowChange, loa
         </div>
       </div>
 
-      {/* Executive Micro-Metrics Bar: Energy (MWh) and Power (MW) */}
+      {/* Executive Micro-Metrics Bar */}
       {summary && (
         <div className="mb-4 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5 rounded-xl border border-border/70 bg-slate-50/60 p-2.5 text-xs">
           {/* 1. Peak Generation */}
@@ -360,19 +402,23 @@ export default function ForecastChart({ points, windowHours, onWindowChange, loa
             </div>
           </div>
 
-          {/* 2. Peak Demand */}
+          {/* 2. Peak Demand / Max Wind Speed */}
           <div className="rounded-lg bg-white p-2 border border-border/60 shadow-2xs">
-            <span className="text-[10px] text-slate-400 block font-semibold uppercase tracking-wider">Peak Demand</span>
-            <div className="mt-0.5 font-mono font-bold text-rust text-sm">{summary.peakDemand} MW</div>
+            <span className="text-[10px] text-slate-400 block font-semibold uppercase tracking-wider">
+              {isWind ? 'Peak Wind Speed' : 'Peak Demand'}
+            </span>
+            <div className="mt-0.5 font-mono font-bold text-rust text-sm">
+              {isWind ? `${summary.maxWindSpeed} m/s` : `${summary.peakDemand} MW`}
+            </div>
           </div>
 
-          {/* 3. Total Forecast Energy (MWh) */}
+          {/* 3. Total Forecast Energy */}
           <div className="rounded-lg bg-white p-2 border border-border/60 shadow-2xs">
             <span className="text-[10px] text-slate-400 block font-semibold uppercase tracking-wider">Total Generation</span>
-            <div className="mt-0.5 font-mono font-bold text-steel text-sm">{summary.totalGenMWh} MWh</div>
+            <div className="mt-0.5 font-mono font-bold text-slate text-sm">{summary.totalGenMWh} MWh</div>
           </div>
 
-          {/* 4. Net Energy Balance (MWh) */}
+          {/* 4. Net Energy Balance */}
           <div className="rounded-lg bg-white p-2 border border-border/60 shadow-2xs">
             <span className="text-[10px] text-slate-400 block font-semibold uppercase tracking-wider">Net Energy Balance</span>
             <div
@@ -384,7 +430,7 @@ export default function ForecastChart({ points, windowHours, onWindowChange, loa
             </div>
           </div>
 
-          {/* 5. Capacity Factor (if rated capacity available) */}
+          {/* 5. Capacity Factor */}
           {summary.capFactor ? (
             <div className="rounded-lg bg-white p-2 border border-border/60 shadow-2xs">
               <span className="text-[10px] text-slate-400 block font-semibold uppercase tracking-wider">Capacity Factor</span>
@@ -393,7 +439,7 @@ export default function ForecastChart({ points, windowHours, onWindowChange, loa
           ) : (
             <div className="rounded-lg bg-white p-2 border border-border/60 shadow-2xs">
               <span className="text-[10px] text-slate-400 block font-semibold uppercase tracking-wider">Avg Hourly Gen</span>
-              <div className="mt-0.5 font-mono font-bold text-steel text-sm">{summary.avgP50} MW</div>
+              <div className="mt-0.5 font-mono font-bold text-slate text-sm">{summary.avgP50} MW</div>
             </div>
           )}
         </div>
@@ -412,27 +458,27 @@ export default function ForecastChart({ points, windowHours, onWindowChange, loa
             <ResponsiveContainer width="100%" height="100%">
               <ComposedChart
                 data={chartData}
-                margin={{ top: 15, right: 15, left: -10, bottom: 10 }}
+                margin={{ top: 15, right: isWind && showWindOverlay ? 35 : 15, left: -10, bottom: 10 }}
               >
                 <defs>
                   {/* Subtle area gradient under P50 */}
                   <linearGradient id="p50AreaGlow" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="#1e3a5f" stopOpacity={0.14} />
-                    <stop offset="100%" stopColor="#1e3a5f" stopOpacity={0.0} />
+                    <stop offset="0%" stopColor={isWind ? '#0284c7' : '#1e3a5f'} stopOpacity={0.16} />
+                    <stop offset="100%" stopColor={isWind ? '#0284c7' : '#1e3a5f'} stopOpacity={0.0} />
                   </linearGradient>
 
                   {/* Uncertainty Band gradient */}
                   <linearGradient id="bandGradient" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="#1e3a5f" stopOpacity={0.18} />
-                    <stop offset="100%" stopColor="#1e3a5f" stopOpacity={0.04} />
+                    <stop offset="0%" stopColor={isWind ? '#0284c7' : '#1e3a5f'} stopOpacity={0.18} />
+                    <stop offset="100%" stopColor={isWind ? '#0284c7' : '#1e3a5f'} stopOpacity={0.04} />
                   </linearGradient>
 
                   {/* Split Gradient for Net Margin Balance view */}
                   <linearGradient id="splitMarginGlow" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="#f97316" stopOpacity={0.35} />
-                    <stop offset={`${zeroOffset * 100}%`} stopColor="#f97316" stopOpacity={0.05} />
-                    <stop offset={`${zeroOffset * 100}%`} stopColor="#dc2626" stopOpacity={0.05} />
-                    <stop offset="100%" stopColor="#dc2626" stopOpacity={0.35} />
+                    <stop offset="0%" stopColor="#eab308" stopOpacity={0.35} />
+                    <stop offset={`${zeroOffset * 100}%`} stopColor="#eab308" stopOpacity={0.05} />
+                    <stop offset={`${zeroOffset * 100}%`} stopColor="#ef4444" stopOpacity={0.05} />
+                    <stop offset="100%" stopColor="#ef4444" stopOpacity={0.35} />
                   </linearGradient>
                 </defs>
 
@@ -452,7 +498,9 @@ export default function ForecastChart({ points, windowHours, onWindowChange, loa
                   tick={<CustomXAxisTick points={points} />}
                 />
 
+                {/* Primary Y-Axis (Power in MW) */}
                 <YAxis
+                  yAxisId="power"
                   tick={{ fontSize: 11, fill: '#64748b', fontWeight: 500 }}
                   axisLine={{ stroke: '#e2e8f0' }}
                   tickLine={false}
@@ -460,14 +508,28 @@ export default function ForecastChart({ points, windowHours, onWindowChange, loa
                   dx={-2}
                 />
 
-                <Tooltip content={<ChartTooltip viewMode={viewMode} />} />
+                {/* Secondary Y-Axis for Wind Speed (m/s) if wind asset active */}
+                {isWind && showWindOverlay && viewMode === 'generation' && (
+                  <YAxis
+                    yAxisId="wind"
+                    orientation="right"
+                    tick={{ fontSize: 10, fill: '#0284c7', fontWeight: 600 }}
+                    axisLine={{ stroke: '#bae6fd' }}
+                    tickLine={false}
+                    unit=" m/s"
+                    dx={2}
+                  />
+                )}
+
+                <Tooltip content={<ChartTooltip viewMode={viewMode} isWind={isWind} />} />
 
                 {/* 0 MW Baseline Reference */}
-                <ReferenceLine y={0} stroke="#94a3b8" strokeDasharray="3 3" />
+                <ReferenceLine yAxisId="power" y={0} stroke="#94a3b8" strokeDasharray="3 3" />
 
-                {/* Rated Capacity Line (if provided) */}
+                {/* Rated Capacity Line */}
                 {capacity && capacity > 0 && showCapacity && viewMode === 'generation' && (
                   <ReferenceLine
+                    yAxisId="power"
                     y={capacity}
                     stroke="#64748b"
                     strokeDasharray="4 4"
@@ -490,6 +552,7 @@ export default function ForecastChart({ points, windowHours, onWindowChange, loa
                       shadeSegments.map((seg, i) => (
                         <ReferenceArea
                           key={i}
+                          yAxisId="power"
                           x1={seg.x1}
                           x2={seg.x2}
                           fill={SHADE_FILL[seg.status]}
@@ -502,6 +565,7 @@ export default function ForecastChart({ points, windowHours, onWindowChange, loa
                     {showBand && (
                       <>
                         <Area
+                          yAxisId="power"
                           type="monotone"
                           dataKey="p10"
                           stackId="band"
@@ -510,6 +574,7 @@ export default function ForecastChart({ points, windowHours, onWindowChange, loa
                           isAnimationActive={false}
                         />
                         <Area
+                          yAxisId="power"
                           type="monotone"
                           dataKey="bandRange"
                           stackId="band"
@@ -523,6 +588,7 @@ export default function ForecastChart({ points, windowHours, onWindowChange, loa
                     {/* Radiant area glow under P50 */}
                     {showP50 && (
                       <Area
+                        yAxisId="power"
                         type="monotone"
                         dataKey="p50"
                         stroke="none"
@@ -534,15 +600,16 @@ export default function ForecastChart({ points, windowHours, onWindowChange, loa
                     {/* Expected Output (P50) Line */}
                     {showP50 && (
                       <Line
+                        yAxisId="power"
                         type="monotone"
                         dataKey="p50"
-                        name="Expected (P50)"
-                        stroke="#1e3a5f"
+                        name={isWind ? 'Wind Gen (P50)' : 'Solar Gen (P50)'}
+                        stroke={isWind ? '#0284c7' : '#1e3a5f'}
                         strokeWidth={2.75}
                         dot={false}
                         activeDot={{
                           r: 5,
-                          fill: '#1e3a5f',
+                          fill: isWind ? '#0284c7' : '#1e3a5f',
                           stroke: '#ffffff',
                           strokeWidth: 2.5,
                         }}
@@ -553,16 +620,38 @@ export default function ForecastChart({ points, windowHours, onWindowChange, loa
                     {/* Committed Demand Line */}
                     {showDemand && (
                       <Line
+                        yAxisId="power"
                         type="monotone"
                         dataKey="demand_mw"
                         name="Demand"
-                        stroke="#ea580c"
+                        stroke="#b45309"
                         strokeWidth={2.25}
                         strokeDasharray="6 4"
                         dot={false}
                         activeDot={{
                           r: 4.5,
-                          fill: '#ea580c',
+                          fill: '#b45309',
+                          stroke: '#ffffff',
+                          strokeWidth: 2,
+                        }}
+                        isAnimationActive={false}
+                      />
+                    )}
+
+                    {/* Wind Speed Overlay on Secondary Axis */}
+                    {isWind && showWindOverlay && (
+                      <Line
+                        yAxisId="wind"
+                        type="monotone"
+                        dataKey="wind_speed"
+                        name="Wind Speed (100m)"
+                        stroke="#0ea5e9"
+                        strokeWidth={1.75}
+                        strokeDasharray="3 3"
+                        dot={false}
+                        activeDot={{
+                          r: 4,
+                          fill: '#0ea5e9',
                           stroke: '#ffffff',
                           strokeWidth: 2,
                         }}
@@ -572,27 +661,25 @@ export default function ForecastChart({ points, windowHours, onWindowChange, loa
                   </>
                 )}
 
-                {/* ================= MODE 2: NET POWER BALANCE (MARGIN VIEW) ================= */}
+                {/* ================= MODE 2: NET POWER BALANCE ================= */}
                 {viewMode === 'balance' && (
-                  <>
-                    {/* Area fill for Net Margin */}
-                    <Area
-                      type="monotone"
-                      dataKey="net_margin"
-                      name="Net Margin"
-                      stroke="#1e3a5f"
-                      strokeWidth={2.25}
-                      fill="url(#splitMarginGlow)"
-                      dot={false}
-                      activeDot={{
-                        r: 5,
-                        fill: '#1e3a5f',
-                        stroke: '#ffffff',
-                        strokeWidth: 2.5,
-                      }}
-                      isAnimationActive={false}
-                    />
-                  </>
+                  <Area
+                    yAxisId="power"
+                    type="monotone"
+                    dataKey="net_margin"
+                    name="Net Margin"
+                    stroke="#1e3a5f"
+                    strokeWidth={2.25}
+                    fill="url(#splitMarginGlow)"
+                    dot={false}
+                    activeDot={{
+                      r: 5,
+                      fill: '#1e3a5f',
+                      stroke: '#ffffff',
+                      strokeWidth: 2.5,
+                    }}
+                    isAnimationActive={false}
+                  />
                 )}
               </ComposedChart>
             </ResponsiveContainer>
@@ -600,19 +687,22 @@ export default function ForecastChart({ points, windowHours, onWindowChange, loa
 
           {/* Interactive Legend & Layer Controls */}
           <div className="mt-4 flex flex-wrap items-center justify-between gap-y-3 border-t border-border/70 pt-3.5 text-xs">
-            {/* Left: Clickable layer toggles based on viewMode */}
             {viewMode === 'generation' ? (
               <div className="flex flex-wrap items-center gap-2">
                 <button
                   onClick={() => setShowP50((v) => !v)}
                   className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 transition-all ${
                     showP50
-                      ? 'border-steel/40 bg-steel/5 text-navy font-semibold'
+                      ? isWind
+                        ? 'border-sky-300 bg-sky-50 text-sky-900 font-semibold'
+                        : 'border-slate/40 bg-slate/5 text-navy font-semibold'
                       : 'border-border bg-slate-50 text-slate-400 line-through'
                   }`}
                   title="Toggle P50 Line"
                 >
-                  <span className="inline-block h-1 w-3.5 rounded-full bg-steel" />
+                  <span
+                    className={`inline-block h-1 w-3.5 rounded-full ${isWind ? 'bg-sky-600' : 'bg-slate'}`}
+                  />
                   <span>P50 Expected</span>
                 </button>
 
@@ -629,16 +719,31 @@ export default function ForecastChart({ points, windowHours, onWindowChange, loa
                   <span>Demand Schedule</span>
                 </button>
 
+                {isWind && (
+                  <button
+                    onClick={() => setShowWindOverlay((v) => !v)}
+                    className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 transition-all ${
+                      showWindOverlay
+                        ? 'border-sky-300 bg-sky-50 text-sky-900 font-semibold'
+                        : 'border-border bg-slate-50 text-slate-400 line-through'
+                    }`}
+                    title="Toggle Wind Velocity Overlay"
+                  >
+                    <Wind size={12} className="text-sky-600" />
+                    <span>Wind Speed (m/s)</span>
+                  </button>
+                )}
+
                 <button
                   onClick={() => setShowBand((v) => !v)}
                   className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 transition-all ${
                     showBand
-                      ? 'border-steel/40 bg-steel/5 text-slate-700 font-semibold'
+                      ? 'border-slate/40 bg-slate/5 text-slate-700 font-semibold'
                       : 'border-border bg-slate-50 text-slate-400 line-through'
                   }`}
                   title="Toggle Uncertainty Band"
                 >
-                  <span className="inline-block h-2.5 w-3.5 rounded-sm bg-steel/20 border border-steel/30" />
+                  <span className="inline-block h-2.5 w-3.5 rounded-sm bg-slate/20 border border-slate/30" />
                   <span>P10–P90 Band</span>
                 </button>
 
@@ -672,11 +777,11 @@ export default function ForecastChart({ points, windowHours, onWindowChange, loa
               </div>
             ) : (
               <div className="flex flex-wrap items-center gap-2">
-                <span className="inline-flex items-center gap-1.5 rounded-lg border border-yellow-200 bg-yellow-50/60 px-2.5 py-1 text-xs font-semibold text-yellow-900">
+                <span className="inline-flex items-center gap-1.5 rounded-lg border border-yellow-300 bg-yellow-50 dark:border-yellow-800 dark:bg-yellow-950/50 px-2.5 py-1 text-xs font-semibold text-yellow-800 dark:text-yellow-300">
                   <span className="h-2 w-2 rounded-full bg-yellow-500" />
                   <span>Above 0 MW: Net Surplus Generation</span>
                 </span>
-                <span className="inline-flex items-center gap-1.5 rounded-lg border border-red-200 bg-red-50/60 px-2.5 py-1 text-xs font-semibold text-red-900">
+                <span className="inline-flex items-center gap-1.5 rounded-lg border border-red-200 bg-red-50 dark:border-red-800 dark:bg-red-950/50 px-2.5 py-1 text-xs font-semibold text-red-900 dark:text-red-300">
                   <span className="h-2 w-2 rounded-full bg-red-600" />
                   <span>Below 0 MW: Net Shortage Deficit</span>
                 </span>
@@ -685,20 +790,14 @@ export default function ForecastChart({ points, windowHours, onWindowChange, loa
 
             {/* Right: Risk Horizon Breakdown chips */}
             <div className="flex items-center gap-2 text-[11px]">
-              <span className="inline-flex items-center gap-1.5 rounded-md bg-yellow-50 px-2.5 py-1 font-semibold text-yellow-800 border border-yellow-200">
+              <span className="inline-flex items-center gap-1.5 rounded-md bg-yellow-50 dark:bg-yellow-950/50 px-2.5 py-1 font-semibold text-yellow-800 dark:text-yellow-300 border border-yellow-300 dark:border-yellow-800">
                 <span className="h-2 w-2 rounded-full bg-yellow-500" />
                 Surplus {summary?.surplusHrs ? `(${summary.surplusHrs}h)` : ''}
               </span>
-              <span className="inline-flex items-center gap-1.5 rounded-md bg-red-50 px-2.5 py-1 font-semibold text-red-800 border border-red-200">
+              <span className="inline-flex items-center gap-1.5 rounded-md bg-red-50 dark:bg-red-950/50 px-2.5 py-1 font-semibold text-red-800 dark:text-red-300 border border-red-200 dark:border-red-800">
                 <span className="h-2 w-2 rounded-full bg-red-600" />
                 Shortage {summary?.shortageHrs ? `(${summary.shortageHrs}h)` : ''}
               </span>
-              {shadeSegments.some((s) => s.status === 'emergency') && (
-                <span className="inline-flex items-center gap-1.5 rounded-md bg-purple-50 px-2.5 py-1 font-semibold text-purple-800 border border-purple-200">
-                  <span className="h-2 w-2 rounded-full bg-purple-700" />
-                  Emergency
-                </span>
-              )}
             </div>
           </div>
         </>
@@ -706,5 +805,3 @@ export default function ForecastChart({ points, windowHours, onWindowChange, loa
     </div>
   )
 }
-
-

@@ -5,20 +5,10 @@ export default {
   theme: {
     extend: {
       colors: {
-        page: '#f8fafc',
         navy: '#0f172a',
-        rust: '#ea580c',
-        rustbg: '#ffedd5',
-        surplus: '#ca8a04',
-        surplusbg: '#fef9c3',
         steel: '#1e3a5f',
-        border: '#e2e8f0',
-        ok: '#16a34a',
-        okbg: '#dcfce7',
-        danger: '#dc2626',
-        dangerbg: '#fee2e2',
-        emergency: '#6b21a8',
-        emergencybg: '#f3e8ff',
+        rust: '#b45309',
+        rustbg: '#fef3c7',
       },
       fontFamily: {
         sans: ['Inter', 'system-ui', '-apple-system', 'sans-serif'],

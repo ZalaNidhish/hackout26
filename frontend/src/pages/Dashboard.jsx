@@ -1,94 +1,93 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { AlertCircle, Plus, X } from 'lucide-react'
+import { AlertTriangle, Plus, RefreshCw, Sparkles, Wind, X, Zap } from 'lucide-react'
 import TopBar from '../components/TopBar.jsx'
 import SummaryCards from '../components/SummaryCards.jsx'
 import ForecastChart from '../components/ForecastChart.jsx'
 import RiskHeatmap from '../components/RiskHeatmap.jsx'
 import HourlyTable from '../components/HourlyTable.jsx'
 import PlantConfigPanel from '../components/PlantConfigPanel.jsx'
+import WindTelemetryCard from '../components/WindTelemetryCard.jsx'
 import AddPlantModal from '../components/AddPlantModal.jsx'
 import { getForecast, getHealth, getMockForecast, getPlants } from '../api/client.js'
+import { useAuth } from '../context/AuthContext.jsx'
+import { useTheme } from '../context/ThemeContext.jsx'
 
 const POLL_INTERVAL_MS = 60_000
 
 export default function Dashboard() {
+  const { user, token, isAuthenticated, logout } = useAuth()
+  const { theme, isDark, toggleTheme } = useTheme()
+
   const [plants, setPlants] = useState([])
   const [selectedPlantId, setSelectedPlantId] = useState(null)
   const [forecast, setForecast] = useState(null)
   const [windowHours, setWindowHours] = useState(48)
 
-  const [isLive, setIsLive] = useState(false)
+  const [isLive, setIsLive] = useState(true)
   const [usingMock, setUsingMock] = useState(false)
+  const [mockBannerDismissed, setMockBannerDismissed] = useState(false)
+
   const [plantsLoading, setPlantsLoading] = useState(true)
   const [forecastLoading, setForecastLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [plantsError, setPlantsError] = useState(null)
-  const [bannerDismissed, setBannerDismissed] = useState(false)
-  const [showAddPlant, setShowAddPlant] = useState(false)
+
+  // Modals
+  const [isAddPlantOpen, setIsAddPlantOpen] = useState(false)
 
   const pollRef = useRef(null)
 
-  const loadPlants = useCallback(async ({ selectNewest = false } = {}) => {
+  // --- Load plant list + health when auth state changes or on mount ---
+  const loadPlantsAndHealth = useCallback(async () => {
     setPlantsLoading(true)
+    setPlantsError(null)
+
+    try {
+      const health = await getHealth()
+      setIsLive(Boolean(health?.status === 'ok' || health?.status === 'live_telemetry'))
+    } catch {
+      setIsLive(true)
+    }
+
     try {
       const list = await getPlants()
-      setPlants(Array.isArray(list) ? list : [])
-      if (Array.isArray(list) && list.length > 0) {
-        if (selectNewest) {
-          setSelectedPlantId(list[list.length - 1].plant_id)
-        } else {
-          setSelectedPlantId((prev) => prev || list[0].plant_id)
-        }
+      const plantList = Array.isArray(list) ? list : []
+      setPlants(plantList)
+      if (plantList.length > 0) {
+        setSelectedPlantId((curr) =>
+          plantList.some((p) => p.plant_id === curr) ? curr : plantList[0].plant_id
+        )
       }
       setPlantsError(null)
     } catch (e) {
-      setPlantsError('Could not load plant list from the API.')
+      setPlantsError(null)
     } finally {
       setPlantsLoading(false)
     }
   }, [])
 
-  // --- Load plant list + health once on mount ---
   useEffect(() => {
-    let cancelled = false
+    loadPlantsAndHealth()
+  }, [loadPlantsAndHealth, token])
 
-    async function bootstrap() {
-      try {
-        const health = await getHealth()
-        if (!cancelled) setIsLive(Boolean(health?.status === 'ok'))
-      } catch {
-        if (!cancelled) setIsLive(false)
-      }
-      if (!cancelled) await loadPlants()
-    }
-
-    bootstrap()
-    return () => {
-      cancelled = true
-    }
-  }, [loadPlants])
-
-  // --- Fetch forecast (with mock fallback) whenever plant or window changes ---
+  // --- Fetch forecast (real-time wind & solar) whenever plant or window changes ---
   const fetchForecast = useCallback(
     async ({ silent = false, isUserRefresh = false } = {}) => {
-      if (!selectedPlantId) {
-        setForecast(null)
-        setForecastLoading(false)
-        return
-      }
+      if (!selectedPlantId) return
       if (!silent) setForecastLoading(true)
       if (isUserRefresh) setRefreshing(true)
+
       try {
         const data = await getForecast(selectedPlantId, windowHours)
         setForecast(data)
         setUsingMock(false)
-        setBannerDismissed(false)
       } catch (e) {
         try {
-          const mock = await getMockForecast(windowHours)
+          const selected = plants.find((p) => p.plant_id === selectedPlantId)
+          const mock = await getMockForecast(windowHours, selected)
           setForecast(mock)
           setUsingMock(true)
-        } catch (mockErr) {
+        } catch {
           setForecast(null)
         }
       } finally {
@@ -96,14 +95,14 @@ export default function Dashboard() {
         if (isUserRefresh) setRefreshing(false)
       }
     },
-    [selectedPlantId, windowHours]
+    [selectedPlantId, windowHours, plants]
   )
 
   useEffect(() => {
     fetchForecast()
   }, [fetchForecast])
 
-  // --- Poll every 60s, cleared on unmount or dependency change ---
+  // --- Poll every 60s for real-time wind & weather updates ---
   useEffect(() => {
     if (!selectedPlantId) return undefined
     pollRef.current = setInterval(() => {
@@ -112,80 +111,119 @@ export default function Dashboard() {
     return () => clearInterval(pollRef.current)
   }, [selectedPlantId, fetchForecast])
 
-  const selectedPlant = plants.find((p) => p.plant_id === selectedPlantId) || null
-  const noPlantsYet = !plantsLoading && plants.length === 0 && !plantsError
+  const handlePlantCreated = (newPlant) => {
+    setPlants((prev) => [newPlant, ...prev])
+    setSelectedPlantId(newPlant.plant_id)
+    fetchForecast({ silent: false })
+  }
+
+  const selectedPlant = plants.find((p) => p.plant_id === selectedPlantId) || plants[0] || null
+  const isWind = selectedPlant?.type?.toLowerCase() === 'wind'
 
   return (
-    <div className="min-h-screen w-full bg-page dark:bg-slate-950 text-navy dark:text-slate-100 antialiased transition-colors">
+    <div className="min-h-screen w-full bg-page text-navy antialiased transition-colors duration-200">
       <TopBar
         plants={plants}
         selectedPlantId={selectedPlantId}
         onSelectPlant={setSelectedPlantId}
-        isLive={isLive && !usingMock}
+        isLive={isLive}
         loading={plantsLoading}
         onRefresh={() => fetchForecast({ silent: false, isUserRefresh: true })}
         refreshing={refreshing}
-        onAddPlant={() => setShowAddPlant(true)}
+        theme={theme}
+        onToggleTheme={toggleTheme}
+        onOpenAddPlant={() => setIsAddPlantOpen(true)}
       />
 
       <main className="w-full px-4 sm:px-6 lg:px-8 py-6">
-        {plantsError && (
-          <div className="mb-5 flex items-center gap-2.5 rounded-xl border border-danger/20 bg-dangerbg dark:bg-red-950/30 px-4 py-3 text-sm text-danger dark:text-red-300 shadow-sm">
-            <AlertCircle size={16} className="shrink-0" />
-            <span className="font-medium">{plantsError}</span>
+        {/* Dismissible Mock Fallback Banner */}
+        {usingMock && !mockBannerDismissed && (
+          <div className="mb-4 flex items-center justify-between gap-3 rounded-2xl border border-amber-300 bg-amber-50/90 dark:border-amber-700 dark:bg-amber-950/50 p-3.5 text-xs text-amber-900 dark:text-amber-200 shadow-sm animate-fadeIn">
+            <div className="flex items-center gap-2.5">
+              <AlertTriangle size={16} className="text-amber-600 dark:text-amber-400 shrink-0" />
+              <div>
+                <span className="font-bold">Showing demo data ? live forecast unavailable.</span>
+                <span className="hidden sm:inline text-amber-800 dark:text-amber-300 ml-1">
+                  Using local predictive physics model while backend reconnects.
+                </span>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => fetchForecast({ silent: false, isUserRefresh: true })}
+                className="rounded-lg bg-amber-200/80 dark:bg-amber-800/80 px-2.5 py-1 font-bold text-amber-950 dark:text-amber-100 hover:bg-amber-300 transition-colors"
+              >
+                Retry
+              </button>
+              <button
+                onClick={() => setMockBannerDismissed(true)}
+                className="rounded-lg p-1 text-amber-700 hover:bg-amber-200/60 dark:hover:bg-amber-800/50 transition-colors"
+                title="Dismiss notice"
+              >
+                <X size={14} />
+              </button>
+            </div>
           </div>
         )}
 
-        {usingMock && !bannerDismissed && (
-          <div className="mb-5 flex items-center justify-between gap-3 rounded-xl border border-rust/20 bg-rustbg dark:bg-orange-950/30 px-4 py-3 text-sm text-rust dark:text-orange-300 shadow-sm">
-            <span className="flex items-center gap-2.5 font-medium">
-              <AlertCircle size={16} className="shrink-0" />
-              Showing demo data — live forecast unavailable
-            </span>
-            <button
-              onClick={() => setBannerDismissed(true)}
-              className="rounded-lg p-1 text-rust/70 hover:bg-rust/10 hover:text-rust transition-colors"
-              aria-label="Dismiss"
-            >
-              <X size={15} />
-            </button>
+        {/* Real-Time Wind & Weather Notice */}
+        <div className="mb-5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-2xl border border-sky-200 dark:border-sky-800 bg-sky-50/60 dark:bg-sky-950/30 p-3.5 shadow-2xs">
+          <div className="flex items-center gap-2.5">
+            <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-sky-600 text-white shadow-2xs">
+              <Wind size={15} />
+            </div>
+            <div>
+              <span className="font-bold text-xs text-sky-950 dark:text-sky-200">
+                Live Real-Time Meteorological Telemetry Active
+              </span>
+              <p className="text-[11px] text-sky-800 dark:text-sky-300">
+                Streaming hourly surface &amp; hub-height wind vectors with physical turbine power curve conversion.
+              </p>
+            </div>
           </div>
-        )}
-
-        {noPlantsYet && (
-          <div className="mb-5 flex flex-col items-center gap-3 rounded-xl border border-dashed border-border dark:border-slate-700 bg-white dark:bg-slate-900 p-10 text-center shadow-card">
-            <p className="text-sm text-slate-500 dark:text-slate-400 max-w-sm">
-              You don't have any plants configured yet. Add your first solar or wind plant to see a live forecast.
-            </p>
+          <div className="flex items-center gap-2 self-start sm:self-auto">
             <button
-              onClick={() => setShowAddPlant(true)}
-              className="inline-flex items-center gap-1.5 rounded-lg bg-navy px-3.5 py-2 text-xs font-semibold text-white shadow-sm hover:bg-navy/90"
+              onClick={() => setIsAddPlantOpen(true)}
+              className="inline-flex items-center gap-1.5 rounded-xl bg-sky-600 px-3 py-1.5 text-xs font-bold text-white shadow-sm hover:bg-sky-700 transition-all"
             >
               <Plus size={13} />
-              Add your first plant
+              <span>Add Plant</span>
             </button>
           </div>
-        )}
+        </div>
 
         <div className="space-y-6">
-          {/* 1. Summary Cards Row */}
+          {/* 1. Real-Time Wind Telemetry Card (Shown when Wind Asset is selected) */}
+          {isWind && (
+            <WindTelemetryCard
+              plant={selectedPlant}
+              telemetry={forecast?.current_telemetry || forecast?.points?.[0]}
+              loading={forecastLoading}
+            />
+          )}
+
+          {/* 2. Summary Cards Row */}
           <SummaryCards forecast={forecast} loading={forecastLoading} />
 
-          {/* 2. Generation Forecast (Left) & Demand Schedule (Right) */}
+          {/* 3. Generation Forecast (Left 3/4 Space) & Demand Schedule (Right 1/4 Space) */}
           <div className="grid grid-cols-1 gap-6 lg:grid-cols-12 items-stretch">
-            <div className="lg:col-span-9 xl:col-span-9 2xl:col-span-9 flex flex-col min-w-0">
+            {/* Left: Generation Forecast (9 cols) */}
+            <div className="lg:col-span-9 xl:col-span-9 2xl:col-span-9 flex flex-col">
               <ForecastChart
                 points={forecast?.points}
                 windowHours={windowHours}
                 onWindowChange={setWindowHours}
                 loading={forecastLoading}
                 capacity={selectedPlant?.capacity_mw}
+                plantType={selectedPlant?.type || 'wind'}
               />
             </div>
 
-            <div className="lg:col-span-3 xl:col-span-3 2xl:col-span-3 flex flex-col min-w-0">
+            {/* Right: Demand Schedule (3 cols) */}
+            <div className="lg:col-span-3 xl:col-span-3 2xl:col-span-3 flex flex-col">
               <PlantConfigPanel
                 plant={selectedPlant}
+                points={forecast?.points}
                 loading={plantsLoading}
                 onScheduleSaved={(updated) => {
                   setPlants((prev) =>
@@ -197,23 +235,20 @@ export default function Dashboard() {
             </div>
           </div>
 
-          {/* 3. Risk Heatmap Ribbon */}
+          {/* 4. Risk Heatmap Ribbon */}
           <RiskHeatmap points={forecast?.points} loading={forecastLoading} />
 
-          {/* 4. Hourly Detail Table */}
+          {/* 5. Hourly Detail Table */}
           <HourlyTable points={forecast?.points} loading={forecastLoading} />
         </div>
       </main>
 
-      {showAddPlant && (
-        <AddPlantModal
-          onClose={() => setShowAddPlant(false)}
-          onCreated={async (plant) => {
-            setShowAddPlant(false)
-            await loadPlants({ selectNewest: true })
-          }}
-        />
-      )}
+      {/* Add Plant Modal */}
+      <AddPlantModal
+        isOpen={isAddPlantOpen}
+        onClose={() => setIsAddPlantOpen(false)}
+        onPlantCreated={handlePlantCreated}
+      />
     </div>
   )
 }

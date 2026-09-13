@@ -15,6 +15,7 @@ import {
   SlidersHorizontal,
   TrendingDown,
   TrendingUp,
+  Wind,
   X,
   Zap,
 } from 'lucide-react'
@@ -23,6 +24,7 @@ import { formatHourLabel, statusStyle } from '../statusConfig.js'
 const COLUMNS = [
   { key: 'hour_offset', label: 'Hour', align: 'left' },
   { key: 'timestamp', label: 'Time & Date', align: 'left' },
+  { key: 'wind_speed_100m', label: 'Wind (m/s)', align: 'right' },
   { key: 'p10', label: 'P10 Floor', align: 'right' },
   { key: 'p50', label: 'P50 Expected', align: 'right' },
   { key: 'p90', label: 'P90 Ceiling', align: 'right' },
@@ -52,10 +54,10 @@ function getActionIcon(actionText = '') {
   if (t.includes('bess') || t.includes('charge') || t.includes('battery')) {
     return <BatteryCharging size={13} className="shrink-0 text-amber-600" />
   }
-  if (t.includes('curtail') || t.includes('market') || t.includes('dam') || t.includes('sell') || t.includes('rtm')) {
-    return <TrendingUp size={13} className="shrink-0 text-yellow-600" />
+  if (t.includes('curtail') || t.includes('market') || t.includes('dam') || t.includes('sell') || t.includes('rtm') || t.includes('surplus')) {
+    return <TrendingUp size={13} className="shrink-0 text-orange-600" />
   }
-  if (t.includes('procure') || t.includes('shortage') || t.includes('deficit') || t.includes('buy') || t.includes('peak')) {
+  if (t.includes('procure') || t.includes('shortage') || t.includes('deficit') || t.includes('buy') || t.includes('peak') || t.includes('feather')) {
     return <AlertTriangle size={13} className="shrink-0 text-red-600" />
   }
   return <CheckCircle2 size={13} className="shrink-0 text-emerald-600" />
@@ -64,11 +66,14 @@ function getActionIcon(actionText = '') {
 export default function HourlyTable({ points, loading }) {
   const [collapsed, setCollapsed] = useState(false)
   const [sort, setSort] = useState({ key: 'hour_offset', dir: 'asc' })
-  const [statusFilter, setStatusFilter] = useState('all') // 'all' | 'surplus' | 'shortage' | 'normal'
-  const [horizonFilter, setHorizonFilter] = useState('all') // 'all' | '24' | '48' | '72'
+  const [statusFilter, setStatusFilter] = useState('all')
+  const [horizonFilter, setHorizonFilter] = useState('all')
   const [searchQuery, setSearchQuery] = useState('')
 
-  // Aggregate statistics across full dataset
+  const hasWindData = useMemo(() => {
+    return Array.isArray(points) && points.some((p) => p.wind_speed_100m !== undefined || p.wind_speed_10m !== undefined)
+  }, [points])
+
   const stats = useMemo(() => {
     if (!points || points.length === 0) {
       return { total: 0, surplus: 0, shortage: 0, normal: 0, avgP50: '0.0', avgDemand: '0.0', netMargin: '0.0' }
@@ -93,38 +98,25 @@ export default function HourlyTable({ points, loading }) {
     const avgP50 = (sumP50 / total).toFixed(1)
     const avgDemand = (sumDemand / total).toFixed(1)
     const diff = (sumP50 - sumDemand) / total
-    const netMargin = (diff > 0 ? `+${diff.toFixed(1)}` : diff.toFixed(1))
+    const netMargin = diff > 0 ? `+${diff.toFixed(1)}` : diff.toFixed(1)
 
     return { total, surplus, shortage, normal, avgP50, avgDemand, netMargin }
   }, [points])
 
-  // Filtered dataset based on status, horizon range, and search
   const filteredPoints = useMemo(() => {
     if (!points) return []
     return points.filter((p) => {
-      // Horizon filter
       if (horizonFilter === '24' && p.hour_offset >= 24) return false
       if (horizonFilter === '48' && (p.hour_offset < 24 || p.hour_offset >= 48)) return false
       if (horizonFilter === '72' && p.hour_offset < 48) return false
 
-      // Status filter
       if (statusFilter !== 'all') {
         const s = (p.status || '').toLowerCase()
-        if (statusFilter === 'surplus' && !(s === 'surplus' || s === 'excess' || s === 'curtailment')) {
-          return false
-        }
-        if (
-          statusFilter === 'shortage' &&
-          !(s === 'shortage' || s === 'deficit' || s === 'warning' || s === 'emergency' || s === 'critical')
-        ) {
-          return false
-        }
-        if (statusFilter === 'normal' && !(s === 'normal' || s === 'ok')) {
-          return false
-        }
+        if (statusFilter === 'surplus' && !(s === 'surplus' || s === 'excess' || s === 'curtailment')) return false
+        if (statusFilter === 'shortage' && !(s === 'shortage' || s === 'deficit' || s === 'warning' || s === 'emergency' || s === 'critical')) return false
+        if (statusFilter === 'normal' && !(s === 'normal' || s === 'ok')) return false
       }
 
-      // Search query
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase().trim()
         const hourStr = `+${p.hour_offset}h`
@@ -146,7 +138,6 @@ export default function HourlyTable({ points, loading }) {
     })
   }, [points, statusFilter, horizonFilter, searchQuery])
 
-  // Sort logic supporting dynamic Net Margin calculation
   const sorted = useMemo(() => {
     const arr = [...(filteredPoints || [])]
     arr.sort((a, b) => {
@@ -156,7 +147,14 @@ export default function HourlyTable({ points, loading }) {
       if (sort.key === 'net_margin') {
         va = Number(a.p50 ?? 0) - Number(a.demand_mw ?? 0)
         vb = Number(b.p50 ?? 0) - Number(b.demand_mw ?? 0)
-      } else if (sort.key === 'hour_offset' || sort.key === 'p10' || sort.key === 'p50' || sort.key === 'p90' || sort.key === 'demand_mw') {
+      } else if (
+        sort.key === 'hour_offset' ||
+        sort.key === 'p10' ||
+        sort.key === 'p50' ||
+        sort.key === 'p90' ||
+        sort.key === 'demand_mw' ||
+        sort.key === 'wind_speed_100m'
+      ) {
         va = Number(va ?? 0)
         vb = Number(vb ?? 0)
       }
@@ -175,12 +173,13 @@ export default function HourlyTable({ points, loading }) {
     )
   }
 
-  // Export CSV functionality
   function handleExportCsv() {
     if (!points || points.length === 0) return
     const headers = [
       'Hour Offset',
       'Timestamp',
+      'Wind Speed (m/s)',
+      'Wind Direction',
       'P10 Floor (MW)',
       'P50 Expected (MW)',
       'P90 Ceiling (MW)',
@@ -192,6 +191,8 @@ export default function HourlyTable({ points, loading }) {
 
     const dataset = filteredPoints.length > 0 ? filteredPoints : points
     const rows = dataset.map((p) => {
+      const windSpeed = p.wind_speed_100m ?? p.wind_speed_10m ?? ''
+      const windDir = p.wind_direction_cardinal || (p.wind_direction ? `${p.wind_direction}°` : '')
       const p10 = p.p10 !== undefined ? Number(p.p10).toFixed(2) : ''
       const p50 = p.p50 !== undefined ? Number(p.p50).toFixed(2) : ''
       const p90 = p.p90 !== undefined ? Number(p.p90).toFixed(2) : ''
@@ -205,6 +206,8 @@ export default function HourlyTable({ points, loading }) {
       return [
         `+${p.hour_offset}h`,
         p.timestamp || '',
+        windSpeed,
+        windDir,
         p10,
         p50,
         p90,
@@ -220,7 +223,7 @@ export default function HourlyTable({ points, loading }) {
     const url = URL.createObjectURL(blob)
     const link = document.createElement('a')
     link.href = url
-    link.setAttribute('download', `hourly_dispatch_schedule_${new Date().toISOString().slice(0, 10)}.csv`)
+    link.setAttribute('download', `realtime_dispatch_schedule_${new Date().toISOString().slice(0, 10)}.csv`)
     document.body.appendChild(link)
     link.click()
     document.body.removeChild(link)
@@ -231,68 +234,47 @@ export default function HourlyTable({ points, loading }) {
 
   return (
     <div className="rounded-xl border border-border/80 bg-white shadow-card overflow-hidden transition-all duration-200">
-      {/* Top Header & Analytics Banner */}
+      {/* Header */}
       <div className="flex flex-col gap-4 border-b border-border/70 p-4 sm:p-5 lg:flex-row lg:items-center lg:justify-between">
         <div className="flex items-start gap-3">
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-steel/20 bg-slate-50 text-steel shadow-sm">
-            <CalendarClock size={20} className="text-steel" />
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-slate/20 bg-slate-50 text-slate shadow-sm">
+            <CalendarClock size={20} className="text-slate" />
           </div>
           <div>
             <div className="flex flex-wrap items-center gap-2">
-              <h2 className="text-base font-bold text-navy tracking-tight">Hourly Forecast Detail</h2>
+              <h2 className="text-base font-bold text-navy tracking-tight">Hourly Generation &amp; Weather Detail</h2>
               <span className="rounded-full bg-slate-100 px-2.5 py-0.5 text-[11px] font-bold text-slate-700">
                 {stats.total} Intervals
               </span>
             </div>
             <p className="text-xs text-slate-500 mt-0.5">
-              Granular multi-quantile generation, committed schedule targets & operational dispatch logic
+              Live hourly wind speeds, multi-quantile generation, committed dispatch demand &amp; operational actions
             </p>
           </div>
         </div>
 
-        {/* Quick Horizon Summary Chips & Header Actions */}
+        {/* Action buttons */}
         <div className="flex flex-wrap items-center gap-2">
-          {/* Surplus Chip */}
-          <div
-            className="flex items-center gap-1.5 rounded-lg border border-yellow-200 bg-yellow-50/80 px-2.5 py-1 text-xs font-semibold text-yellow-800"
-            title="Total hours with generation exceeding committed demand"
-          >
+          <div className="flex items-center gap-1.5 rounded-lg border border-yellow-300 bg-yellow-50 dark:border-yellow-800 dark:bg-yellow-950/60 px-2.5 py-1 text-xs font-semibold text-yellow-800 dark:text-yellow-300">
             <span className="h-2 w-2 rounded-full bg-yellow-500 shadow-sm shadow-yellow-500/50" />
             <span>Surplus: {stats.surplus}h</span>
           </div>
 
-          {/* Shortage Chip */}
-          <div
-            className="flex items-center gap-1.5 rounded-lg border border-red-200 bg-red-50/80 px-2.5 py-1 text-xs font-semibold text-red-800"
-            title="Total hours with generation below committed demand"
-          >
+          <div className="flex items-center gap-1.5 rounded-lg border border-red-200 bg-red-50 dark:border-red-800 dark:bg-red-950/60 px-2.5 py-1 text-xs font-semibold text-red-800 dark:text-red-300">
             <span className="h-2 w-2 rounded-full bg-red-600 shadow-sm shadow-red-600/50" />
             <span>Shortage: {stats.shortage}h</span>
           </div>
 
-          {/* Net Margin Pill */}
-          <div
-            className="hidden sm:flex items-center gap-1.5 rounded-lg border border-border bg-slate-50/80 px-2.5 py-1 text-xs font-semibold text-navy"
-            title="Average expected net margin (P50 - Demand)"
-          >
-            <span className="text-slate-400">Avg Margin:</span>
-            <span className={Number(stats.netMargin) >= 0 ? 'text-emerald-700' : 'text-red-600'}>
-              {stats.netMargin} MW
-            </span>
-          </div>
-
-          {/* CSV Export Button */}
           <button
             onClick={handleExportCsv}
             disabled={!points || points.length === 0}
-            title="Export full hourly schedule to CSV"
-            className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm transition-all hover:border-steel/40 hover:bg-slate-50 hover:text-navy focus:outline-none focus:ring-2 focus:ring-steel/20 disabled:cursor-not-allowed disabled:opacity-50"
+            title="Export full schedule to CSV"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm transition-all hover:border-slate/40 hover:bg-slate-50 hover:text-navy focus:outline-none focus:ring-2 focus:ring-slate/20 disabled:cursor-not-allowed disabled:opacity-50"
           >
             <Download size={13} className="text-slate-500" />
             <span className="hidden xs:inline">Export CSV</span>
           </button>
 
-          {/* Collapse / Expand Toggle */}
           <button
             onClick={() => setCollapsed((c) => !c)}
             className="flex h-8 w-8 items-center justify-center rounded-lg border border-border/80 bg-white text-slate-500 shadow-sm transition-all hover:bg-slate-50 hover:text-navy focus:outline-none"
@@ -303,12 +285,10 @@ export default function HourlyTable({ points, loading }) {
         </div>
       </div>
 
-      {/* Main Table Section */}
       {!collapsed && (
         <div>
-          {/* Interactive Filters Bar */}
+          {/* Filters Bar */}
           <div className="flex flex-col gap-3 border-b border-border/60 bg-slate-50/60 p-3 sm:flex-row sm:items-center sm:justify-between sm:px-5">
-            {/* Status Filter Chips */}
             <div className="flex flex-wrap items-center gap-1.5">
               <span className="mr-1 text-[11px] font-bold uppercase tracking-wider text-slate-400">
                 Filter:
@@ -318,7 +298,7 @@ export default function HourlyTable({ points, loading }) {
                 className={`rounded-lg px-2.5 py-1 text-xs font-semibold transition-all ${
                   statusFilter === 'all'
                     ? 'bg-navy text-white shadow-sm'
-                    : 'bg-white text-slate-600 border border-border hover:border-steel/30 hover:bg-slate-100'
+                    : 'bg-white text-slate-600 border border-border hover:border-slate/30 hover:bg-slate-100'
                 }`}
               >
                 All ({stats.total})
@@ -329,7 +309,7 @@ export default function HourlyTable({ points, loading }) {
                 className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-semibold transition-all ${
                   statusFilter === 'surplus'
                     ? 'bg-yellow-500 text-white shadow-sm shadow-yellow-500/20'
-                    : 'bg-white text-yellow-800 border border-yellow-200 hover:bg-yellow-50'
+                    : 'bg-white dark:bg-slate-800 text-yellow-800 dark:text-yellow-300 border border-yellow-300 dark:border-yellow-700 hover:bg-yellow-50'
                 }`}
               >
                 <span className={`h-1.5 w-1.5 rounded-full ${statusFilter === 'surplus' ? 'bg-white' : 'bg-yellow-500'}`} />
@@ -361,9 +341,7 @@ export default function HourlyTable({ points, loading }) {
               </button>
             </div>
 
-            {/* Time Window & Search Input */}
             <div className="flex flex-wrap items-center gap-2">
-              {/* Horizon Scope Tabs */}
               <div className="flex items-center rounded-lg border border-border bg-white p-0.5 shadow-sm text-xs">
                 <button
                   onClick={() => setHorizonFilter('all')}
@@ -399,7 +377,6 @@ export default function HourlyTable({ points, loading }) {
                 </button>
               </div>
 
-              {/* Instant Search Box */}
               <div className="relative">
                 <Search size={13} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
                 <input
@@ -407,7 +384,7 @@ export default function HourlyTable({ points, loading }) {
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   placeholder="Search hour, action..."
-                  className="w-36 sm:w-44 rounded-lg border border-border bg-white py-1 pl-8 pr-7 text-xs text-navy placeholder:text-slate-400 focus:border-steel focus:outline-none focus:ring-1 focus:ring-steel/20"
+                  className="w-36 sm:w-44 rounded-lg border border-border bg-white py-1 pl-8 pr-7 text-xs text-navy placeholder:text-slate-400 focus:border-slate focus:outline-none focus:ring-1 focus:ring-slate/20"
                 />
                 {searchQuery && (
                   <button
@@ -418,25 +395,10 @@ export default function HourlyTable({ points, loading }) {
                   </button>
                 )}
               </div>
-
-              {/* Reset filter button if active */}
-              {isFiltered && (
-                <button
-                  onClick={() => {
-                    setStatusFilter('all')
-                    setHorizonFilter('all')
-                    setSearchQuery('')
-                  }}
-                  className="rounded-lg border border-dashed border-border px-2 py-1 text-xs font-medium text-slate-500 hover:border-steel hover:text-navy"
-                  title="Reset all filters"
-                >
-                  Reset
-                </button>
-              )}
             </div>
           </div>
 
-          {/* Table Content Area */}
+          {/* Table */}
           {loading ? (
             <div className="space-y-2 p-5">
               {Array.from({ length: 6 }).map((_, i) => (
@@ -449,11 +411,7 @@ export default function HourlyTable({ points, loading }) {
             </div>
           ) : sorted.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-12 px-4 text-center">
-              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-slate-100 text-slate-400 mb-2">
-                <Search size={18} />
-              </div>
               <p className="text-sm font-semibold text-navy">No intervals match your filter criteria</p>
-              <p className="text-xs text-slate-500 mt-1">Try resetting the status filter or clearing your search term.</p>
               <button
                 onClick={() => {
                   setStatusFilter('all')
@@ -467,8 +425,7 @@ export default function HourlyTable({ points, loading }) {
             </div>
           ) : (
             <div className="max-h-[520px] overflow-auto">
-              <table className="w-full min-w-[880px] text-left text-xs border-collapse">
-                {/* Sticky Header */}
+              <table className="w-full min-w-[920px] text-left text-xs border-collapse">
                 <thead className="sticky top-0 z-10 bg-slate-100/95 backdrop-blur-sm text-[11px] font-bold uppercase tracking-wider text-slate-600 border-b border-border shadow-sm">
                   <tr>
                     {COLUMNS.map((col) => {
@@ -507,7 +464,6 @@ export default function HourlyTable({ points, loading }) {
                   </tr>
                 </thead>
 
-                {/* Table Body */}
                 <tbody className="divide-y divide-border/60">
                   {sorted.map((p) => {
                     const style = statusStyle(p.status)
@@ -526,6 +482,8 @@ export default function HourlyTable({ points, loading }) {
                     const p50Num = p.p50 !== undefined ? Number(p.p50) : null
                     const p90Num = p.p90 !== undefined ? Number(p.p90) : null
                     const demandNum = p.demand_mw !== undefined ? Number(p.demand_mw) : null
+                    const windSpeed = p.wind_speed_100m ?? p.wind_speed_10m ?? null
+                    const windDir = p.wind_direction_cardinal || (p.wind_direction ? `${p.wind_direction}°` : '')
 
                     const margin =
                       p50Num !== null && demandNum !== null
@@ -534,28 +492,23 @@ export default function HourlyTable({ points, loading }) {
 
                     const { time, date } = getFormattedTimestamp(p)
 
-                    // Row background styling based on risk state
-                    let rowBg = 'hover:bg-slate-50/80 transition-colors'
+                    let rowBg = 'hover:bg-slate-50/80 dark:hover:bg-slate-800/50 transition-colors'
                     if (isShortage) {
-                      rowBg = 'bg-red-50/20 hover:bg-red-50/40 transition-colors'
+                      rowBg = 'bg-red-50/20 dark:bg-red-950/20 hover:bg-red-50/40 dark:hover:bg-red-950/40 transition-colors'
                     } else if (isSurplus) {
-                      rowBg = 'bg-yellow-50/15 hover:bg-yellow-50/35 transition-colors'
+                      rowBg = 'bg-yellow-50/20 dark:bg-yellow-950/20 hover:bg-yellow-50/40 dark:hover:bg-yellow-950/40 transition-colors'
                     }
-
-                    // Spread calculation for uncertainty bar
-                    const spread =
-                      p90Num !== null && p10Num !== null ? Math.max(0, p90Num - p10Num) : 0
 
                     return (
                       <tr key={p.hour_offset} className={rowBg}>
-                        {/* 1. Hour Offset */}
+                        {/* Hour */}
                         <td className="whitespace-nowrap px-4 py-2.5">
                           <span className="inline-flex items-center rounded-md bg-slate-100 px-2 py-0.5 font-mono text-[11px] font-bold text-navy">
                             +{p.hour_offset}h
                           </span>
                         </td>
 
-                        {/* 2. Timestamp (Time & Date) */}
+                        {/* Timestamp */}
                         <td className="whitespace-nowrap px-4 py-2.5">
                           <div className="flex flex-col leading-tight">
                             <span className="font-semibold text-navy">{time}</span>
@@ -563,37 +516,44 @@ export default function HourlyTable({ points, loading }) {
                           </div>
                         </td>
 
-                        {/* 3. P10 Floor */}
+                        {/* Wind Speed (m/s) */}
+                        <td className="whitespace-nowrap px-4 py-2.5 text-right font-mono">
+                          {windSpeed !== null ? (
+                            <div className="inline-flex items-center gap-1">
+                              <span className="font-bold text-sky-700">{Number(windSpeed).toFixed(1)}</span>
+                              <span className="text-[10px] text-slate-400">m/s</span>
+                              {windDir && (
+                                <span className="rounded bg-sky-50 px-1 text-[9.5px] font-bold text-sky-800 border border-sky-200 ml-0.5">
+                                  {windDir}
+                                </span>
+                              )}
+                            </div>
+                          ) : (
+                            <span className="text-slate-400">—</span>
+                          )}
+                        </td>
+
+                        {/* P10 */}
                         <td className="whitespace-nowrap px-4 py-2.5 text-right font-mono text-slate-500">
                           {p10Num !== null ? p10Num.toFixed(1) : '—'}{' '}
                           <span className="text-[10px] text-slate-400 font-sans">MW</span>
                         </td>
 
-                        {/* 4. P50 Expected (+ micro spread) */}
+                        {/* P50 */}
                         <td className="whitespace-nowrap px-4 py-2.5 text-right">
-                          <div className="inline-flex flex-col items-end leading-tight">
-                            <span className="font-mono font-bold text-steel text-[13px]">
-                              {p50Num !== null ? p50Num.toFixed(1) : '—'}{' '}
-                              <span className="text-[10px] text-slate-400 font-sans font-normal">MW</span>
-                            </span>
-                            {spread > 0 && (
-                              <span
-                                className="text-[9px] text-slate-400 font-mono"
-                                title={`Uncertainty Spread: P10 (${p10Num?.toFixed(1)}) to P90 (${p90Num?.toFixed(1)})`}
-                              >
-                                ±{(spread / 2).toFixed(1)} MW
-                              </span>
-                            )}
-                          </div>
+                          <span className="font-mono font-bold text-slate text-[13px]">
+                            {p50Num !== null ? p50Num.toFixed(1) : '—'}{' '}
+                            <span className="text-[10px] text-slate-400 font-sans font-normal">MW</span>
+                          </span>
                         </td>
 
-                        {/* 5. P90 Ceiling */}
+                        {/* P90 */}
                         <td className="whitespace-nowrap px-4 py-2.5 text-right font-mono text-slate-500">
                           {p90Num !== null ? p90Num.toFixed(1) : '—'}{' '}
                           <span className="text-[10px] text-slate-400 font-sans">MW</span>
                         </td>
 
-                        {/* 6. Committed Demand */}
+                        {/* Demand */}
                         <td className="whitespace-nowrap px-4 py-2.5 text-right">
                           <span className="font-mono font-semibold text-rust">
                             {demandNum !== null ? demandNum.toFixed(1) : '—'}{' '}
@@ -601,7 +561,7 @@ export default function HourlyTable({ points, loading }) {
                           </span>
                         </td>
 
-                        {/* 7. Net Margin (P50 - Demand) */}
+                        {/* Net Margin */}
                         <td className="whitespace-nowrap px-4 py-2.5 text-right font-mono">
                           {margin !== null ? (
                             <span
@@ -625,7 +585,7 @@ export default function HourlyTable({ points, loading }) {
                           )}
                         </td>
 
-                        {/* 8. Grid State */}
+                        {/* Status */}
                         <td className="whitespace-nowrap px-4 py-2.5 text-center">
                           <span
                             className="inline-flex items-center gap-1.5 rounded-md px-2 py-0.5 text-[10px] font-bold shadow-2xs"
@@ -643,7 +603,7 @@ export default function HourlyTable({ points, loading }) {
                           </span>
                         </td>
 
-                        {/* 9. Recommended Action */}
+                        {/* Action */}
                         <td className="max-w-[320px] px-4 py-2.5">
                           <div className="flex items-center gap-1.5">
                             {getActionIcon(p.action)}
@@ -663,17 +623,13 @@ export default function HourlyTable({ points, loading }) {
             </div>
           )}
 
-          {/* Table Footer with Visible Rows Counter & Help Note */}
           <div className="flex flex-col sm:flex-row items-center justify-between border-t border-border/70 bg-slate-50/50 px-5 py-2.5 text-xs text-slate-500">
-            <div className="flex items-center gap-2">
-              <span className="font-semibold text-navy">
-                Showing {sorted.length} of {stats.total} intervals
-              </span>
-              {isFiltered && <span className="text-slate-400">• Filtered view active</span>}
-            </div>
-            <div className="mt-1 sm:mt-0 text-[11px] text-slate-400">
-              P50 denotes median expectation; P10–P90 represents 80% probabilistic confidence interval
-            </div>
+            <span className="font-semibold text-navy">
+              Showing {sorted.length} of {stats.total} intervals
+            </span>
+            <span className="text-[11px] text-slate-400">
+              Live hub-height wind speed vector and aerodynamic energy conversion
+            </span>
           </div>
         </div>
       )}
