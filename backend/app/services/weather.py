@@ -50,7 +50,6 @@ def fetch_forecast_weather(lat: float, lon: float, hours: int = 72) -> pd.DataFr
         # Graceful fallback: seasonal/synthetic estimate instead of failing outright
         return _synthetic_weather(hours)
 
-
 def fetch_historical_weather(lat: float, lon: float, start_date: str, end_date: str) -> pd.DataFrame:
     """Historical weather, used for model training."""
     resp = requests.get(
@@ -83,11 +82,17 @@ def _synthetic_weather(hours: int) -> pd.DataFrame:
         # crude daylight bell curve centered at 13:00
         daylight = max(0, np.cos((hour_of_day - 13) / 6 * np.pi / 2))
         radiation = 850 * daylight * (0.7 + 0.3 * np.random.rand())
+        # Wind: base variability across the turbine's useful range (cut-in ~3
+        # m/s to rated ~12-13 m/s), plus an occasional gust so severe-weather
+        # emergency logic (>=20 m/s) actually has something to trigger on.
+        wind_speed = np.random.uniform(2, 14)
+        if np.random.rand() < 0.04:
+            wind_speed += np.random.uniform(6, 14)  # gust event
         rows.append({
             "time": ts,
             "shortwave_radiation": radiation,
             "cloud_cover": np.random.uniform(10, 60),
-            "wind_speed_10m": np.random.uniform(2, 9),
+            "wind_speed_10m": wind_speed,
             "temperature_2m": 22 + 8 * daylight + np.random.uniform(-2, 2),
             "hour_offset": h,
         })

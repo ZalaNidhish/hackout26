@@ -4,9 +4,37 @@ Frontend devs can build against these shapes even before the real ML model exist
 because /forecast returns exactly this structure whether the data behind it is
 mocked or real.
 """
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, EmailStr, field_validator
 from typing import List, Optional
 from datetime import datetime
+
+VALID_PLANT_TYPES = {"solar", "wind"}
+
+
+# ---------- Auth ----------
+
+class UserCreate(BaseModel):
+    email: EmailStr
+    password: str = Field(..., min_length=6, description="Minimum 6 characters")
+
+
+class UserLogin(BaseModel):
+    email: EmailStr
+    password: str
+
+
+class UserOut(BaseModel):
+    id: int
+    email: str
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class Token(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    user: UserOut
 
 
 # ---------- Plant configuration ----------
@@ -28,14 +56,24 @@ class PlantConfig(BaseModel):
         description="Hour-by-hour committed supply, like a PPA schedule",
     )
 
+    model_config = {"from_attributes": True}
+
 
 class PlantConfigCreate(BaseModel):
     name: str
     type: str
-    capacity_mw: float
+    capacity_mw: float = Field(..., gt=0, le=2000)
     latitude: float
     longitude: float
     demand_schedule: Optional[List[DemandPoint]] = None
+
+    @field_validator("type")
+    @classmethod
+    def validate_type(cls, v):
+        v = v.lower().strip()
+        if v not in VALID_PLANT_TYPES:
+            raise ValueError(f"type must be one of {VALID_PLANT_TYPES}")
+        return v
 
 
 # ---------- Forecast ----------
