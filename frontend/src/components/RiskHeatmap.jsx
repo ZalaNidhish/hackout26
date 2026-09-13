@@ -153,7 +153,7 @@ export default function RiskHeatmap({ points, loading }) {
                   </div>
                   <div className="flex justify-between items-center">
                     <span className="text-slate-400">Committed Demand:</span>
-                    <span className="font-bold text-slate font-mono">
+                    <span className="font-bold text-steel font-mono">
                       {Number(hovered.demand_mw ?? 0).toFixed(1)} MW
                     </span>
                   </div>

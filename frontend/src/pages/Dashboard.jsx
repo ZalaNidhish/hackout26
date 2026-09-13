@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { AlertCircle, Info, X } from 'lucide-react'
+import { AlertCircle, Plus, X } from 'lucide-react'
 import TopBar from '../components/TopBar.jsx'
 import SummaryCards from '../components/SummaryCards.jsx'
 import ForecastChart from '../components/ForecastChart.jsx'
 import RiskHeatmap from '../components/RiskHeatmap.jsx'
 import HourlyTable from '../components/HourlyTable.jsx'
 import PlantConfigPanel from '../components/PlantConfigPanel.jsx'
+import AddPlantModal from '../components/AddPlantModal.jsx'
 import { getForecast, getHealth, getMockForecast, getPlants } from '../api/client.js'
 
 const POLL_INTERVAL_MS = 60_000
@@ -23,47 +24,58 @@ export default function Dashboard() {
   const [refreshing, setRefreshing] = useState(false)
   const [plantsError, setPlantsError] = useState(null)
   const [bannerDismissed, setBannerDismissed] = useState(false)
+  const [showAddPlant, setShowAddPlant] = useState(false)
 
   const pollRef = useRef(null)
+
+  const loadPlants = useCallback(async ({ selectNewest = false } = {}) => {
+    setPlantsLoading(true)
+    try {
+      const list = await getPlants()
+      setPlants(Array.isArray(list) ? list : [])
+      if (Array.isArray(list) && list.length > 0) {
+        if (selectNewest) {
+          setSelectedPlantId(list[list.length - 1].plant_id)
+        } else {
+          setSelectedPlantId((prev) => prev || list[0].plant_id)
+        }
+      }
+      setPlantsError(null)
+    } catch (e) {
+      setPlantsError('Could not load plant list from the API.')
+    } finally {
+      setPlantsLoading(false)
+    }
+  }, [])
 
   // --- Load plant list + health once on mount ---
   useEffect(() => {
     let cancelled = false
 
     async function bootstrap() {
-      setPlantsLoading(true)
       try {
         const health = await getHealth()
         if (!cancelled) setIsLive(Boolean(health?.status === 'ok'))
       } catch {
         if (!cancelled) setIsLive(false)
       }
-
-      try {
-        const list = await getPlants()
-        if (cancelled) return
-        setPlants(Array.isArray(list) ? list : [])
-        if (Array.isArray(list) && list.length > 0) {
-          setSelectedPlantId(list[0].plant_id)
-        }
-        setPlantsError(null)
-      } catch (e) {
-        if (!cancelled) setPlantsError('Could not load plant list from the API.')
-      } finally {
-        if (!cancelled) setPlantsLoading(false)
-      }
+      if (!cancelled) await loadPlants()
     }
 
     bootstrap()
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [loadPlants])
 
   // --- Fetch forecast (with mock fallback) whenever plant or window changes ---
   const fetchForecast = useCallback(
     async ({ silent = false, isUserRefresh = false } = {}) => {
-      if (!selectedPlantId) return
+      if (!selectedPlantId) {
+        setForecast(null)
+        setForecastLoading(false)
+        return
+      }
       if (!silent) setForecastLoading(true)
       if (isUserRefresh) setRefreshing(true)
       try {
@@ -101,9 +113,10 @@ export default function Dashboard() {
   }, [selectedPlantId, fetchForecast])
 
   const selectedPlant = plants.find((p) => p.plant_id === selectedPlantId) || null
+  const noPlantsYet = !plantsLoading && plants.length === 0 && !plantsError
 
   return (
-    <div className="min-h-screen w-full bg-page text-navy antialiased">
+    <div className="min-h-screen w-full bg-page dark:bg-slate-950 text-navy dark:text-slate-100 antialiased transition-colors">
       <TopBar
         plants={plants}
         selectedPlantId={selectedPlantId}
@@ -112,18 +125,19 @@ export default function Dashboard() {
         loading={plantsLoading}
         onRefresh={() => fetchForecast({ silent: false, isUserRefresh: true })}
         refreshing={refreshing}
+        onAddPlant={() => setShowAddPlant(true)}
       />
 
       <main className="w-full px-4 sm:px-6 lg:px-8 py-6">
         {plantsError && (
-          <div className="mb-5 flex items-center gap-2.5 rounded-xl border border-danger/20 bg-dangerbg px-4 py-3 text-sm text-danger shadow-sm">
+          <div className="mb-5 flex items-center gap-2.5 rounded-xl border border-danger/20 bg-dangerbg dark:bg-red-950/30 px-4 py-3 text-sm text-danger dark:text-red-300 shadow-sm">
             <AlertCircle size={16} className="shrink-0" />
             <span className="font-medium">{plantsError}</span>
           </div>
         )}
 
         {usingMock && !bannerDismissed && (
-          <div className="mb-5 flex items-center justify-between gap-3 rounded-xl border border-rust/20 bg-rustbg px-4 py-3 text-sm text-rust shadow-sm">
+          <div className="mb-5 flex items-center justify-between gap-3 rounded-xl border border-rust/20 bg-rustbg dark:bg-orange-950/30 px-4 py-3 text-sm text-rust dark:text-orange-300 shadow-sm">
             <span className="flex items-center gap-2.5 font-medium">
               <AlertCircle size={16} className="shrink-0" />
               Showing demo data — live forecast unavailable
@@ -138,9 +152,18 @@ export default function Dashboard() {
           </div>
         )}
 
-        {!plantsLoading && plants.length === 0 && !plantsError && (
-          <div className="mb-5 rounded-xl border border-border bg-white p-8 text-center text-sm text-slate-500 shadow-card">
-            No plants configured yet. Add a plant via the API to see forecast data here.
+        {noPlantsYet && (
+          <div className="mb-5 flex flex-col items-center gap-3 rounded-xl border border-dashed border-border dark:border-slate-700 bg-white dark:bg-slate-900 p-10 text-center shadow-card">
+            <p className="text-sm text-slate-500 dark:text-slate-400 max-w-sm">
+              You don't have any plants configured yet. Add your first solar or wind plant to see a live forecast.
+            </p>
+            <button
+              onClick={() => setShowAddPlant(true)}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-navy px-3.5 py-2 text-xs font-semibold text-white shadow-sm hover:bg-navy/90"
+            >
+              <Plus size={13} />
+              Add your first plant
+            </button>
           </div>
         )}
 
@@ -148,10 +171,9 @@ export default function Dashboard() {
           {/* 1. Summary Cards Row */}
           <SummaryCards forecast={forecast} loading={forecastLoading} />
 
-          {/* 2. Generation Forecast (Left 3/4 Space) & Demand Schedule (Right 1/4 Space) */}
+          {/* 2. Generation Forecast (Left) & Demand Schedule (Right) */}
           <div className="grid grid-cols-1 gap-6 lg:grid-cols-12 items-stretch">
-            {/* Left: Generation Forecast (3/4 space = 9 cols) */}
-            <div className="lg:col-span-9 xl:col-span-9 2xl:col-span-9 flex flex-col">
+            <div className="lg:col-span-9 xl:col-span-9 2xl:col-span-9 flex flex-col min-w-0">
               <ForecastChart
                 points={forecast?.points}
                 windowHours={windowHours}
@@ -161,8 +183,7 @@ export default function Dashboard() {
               />
             </div>
 
-            {/* Right: Demand Schedule (1/4 space = 3 cols) */}
-            <div className="lg:col-span-3 xl:col-span-3 2xl:col-span-3 flex flex-col">
+            <div className="lg:col-span-3 xl:col-span-3 2xl:col-span-3 flex flex-col min-w-0">
               <PlantConfigPanel
                 plant={selectedPlant}
                 loading={plantsLoading}
@@ -176,13 +197,23 @@ export default function Dashboard() {
             </div>
           </div>
 
-          {/* 3. Risk Heatmap Ribbon (100vw) */}
+          {/* 3. Risk Heatmap Ribbon */}
           <RiskHeatmap points={forecast?.points} loading={forecastLoading} />
 
-          {/* 4. Hourly Detail Table (100vw) */}
+          {/* 4. Hourly Detail Table */}
           <HourlyTable points={forecast?.points} loading={forecastLoading} />
         </div>
       </main>
+
+      {showAddPlant && (
+        <AddPlantModal
+          onClose={() => setShowAddPlant(false)}
+          onCreated={async (plant) => {
+            setShowAddPlant(false)
+            await loadPlants({ selectNewest: true })
+          }}
+        />
+      )}
     </div>
   )
 }

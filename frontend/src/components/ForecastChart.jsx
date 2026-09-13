@@ -30,7 +30,7 @@ const WINDOW_OPTIONS = [24, 48, 72]
 
 const SHADE_FILL = {
   shortage: '#fee2e2',
-  surplus: '#ffedd5',
+  surplus: '#fef9c3',
   emergency: '#f3e8ff',
 }
 
@@ -282,7 +282,7 @@ export default function ForecastChart({ points, windowHours, onWindowChange, loa
       {/* Header: Title, View Switcher & Window Control */}
       <div className="mb-4 flex flex-col gap-4 border-b border-border/50 pb-4 lg:flex-row lg:items-center lg:justify-between">
         <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-slate/10 text-slate">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-steel/10 text-steel">
             <TrendingUp size={20} strokeWidth={2.25} />
           </div>
           <div>
@@ -369,7 +369,7 @@ export default function ForecastChart({ points, windowHours, onWindowChange, loa
           {/* 3. Total Forecast Energy (MWh) */}
           <div className="rounded-lg bg-white p-2 border border-border/60 shadow-2xs">
             <span className="text-[10px] text-slate-400 block font-semibold uppercase tracking-wider">Total Generation</span>
-            <div className="mt-0.5 font-mono font-bold text-slate text-sm">{summary.totalGenMWh} MWh</div>
+            <div className="mt-0.5 font-mono font-bold text-steel text-sm">{summary.totalGenMWh} MWh</div>
           </div>
 
           {/* 4. Net Energy Balance (MWh) */}
@@ -393,7 +393,7 @@ export default function ForecastChart({ points, windowHours, onWindowChange, loa
           ) : (
             <div className="rounded-lg bg-white p-2 border border-border/60 shadow-2xs">
               <span className="text-[10px] text-slate-400 block font-semibold uppercase tracking-wider">Avg Hourly Gen</span>
-              <div className="mt-0.5 font-mono font-bold text-slate text-sm">{summary.avgP50} MW</div>
+              <div className="mt-0.5 font-mono font-bold text-steel text-sm">{summary.avgP50} MW</div>
             </div>
           )}
         </div>
@@ -607,12 +607,12 @@ export default function ForecastChart({ points, windowHours, onWindowChange, loa
                   onClick={() => setShowP50((v) => !v)}
                   className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 transition-all ${
                     showP50
-                      ? 'border-slate/40 bg-slate/5 text-navy font-semibold'
+                      ? 'border-steel/40 bg-steel/5 text-navy font-semibold'
                       : 'border-border bg-slate-50 text-slate-400 line-through'
                   }`}
                   title="Toggle P50 Line"
                 >
-                  <span className="inline-block h-1 w-3.5 rounded-full bg-slate" />
+                  <span className="inline-block h-1 w-3.5 rounded-full bg-steel" />
                   <span>P50 Expected</span>
                 </button>
 
@@ -633,12 +633,12 @@ export default function ForecastChart({ points, windowHours, onWindowChange, loa
                   onClick={() => setShowBand((v) => !v)}
                   className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 transition-all ${
                     showBand
-                      ? 'border-slate/40 bg-slate/5 text-slate-700 font-semibold'
+                      ? 'border-steel/40 bg-steel/5 text-slate-700 font-semibold'
                       : 'border-border bg-slate-50 text-slate-400 line-through'
                   }`}
                   title="Toggle Uncertainty Band"
                 >
-                  <span className="inline-block h-2.5 w-3.5 rounded-sm bg-slate/20 border border-slate/30" />
+                  <span className="inline-block h-2.5 w-3.5 rounded-sm bg-steel/20 border border-steel/30" />
                   <span>P10–P90 Band</span>
                 </button>
 
@@ -672,8 +672,8 @@ export default function ForecastChart({ points, windowHours, onWindowChange, loa
               </div>
             ) : (
               <div className="flex flex-wrap items-center gap-2">
-                <span className="inline-flex items-center gap-1.5 rounded-lg border border-orange-200 bg-orange-50/60 px-2.5 py-1 text-xs font-semibold text-orange-900">
-                  <span className="h-2 w-2 rounded-full bg-orange-500" />
+                <span className="inline-flex items-center gap-1.5 rounded-lg border border-yellow-200 bg-yellow-50/60 px-2.5 py-1 text-xs font-semibold text-yellow-900">
+                  <span className="h-2 w-2 rounded-full bg-yellow-500" />
                   <span>Above 0 MW: Net Surplus Generation</span>
                 </span>
                 <span className="inline-flex items-center gap-1.5 rounded-lg border border-red-200 bg-red-50/60 px-2.5 py-1 text-xs font-semibold text-red-900">
@@ -685,8 +685,8 @@ export default function ForecastChart({ points, windowHours, onWindowChange, loa
 
             {/* Right: Risk Horizon Breakdown chips */}
             <div className="flex items-center gap-2 text-[11px]">
-              <span className="inline-flex items-center gap-1.5 rounded-md bg-orange-50 px-2.5 py-1 font-semibold text-orange-800 border border-orange-200">
-                <span className="h-2 w-2 rounded-full bg-orange-500" />
+              <span className="inline-flex items-center gap-1.5 rounded-md bg-yellow-50 px-2.5 py-1 font-semibold text-yellow-800 border border-yellow-200">
+                <span className="h-2 w-2 rounded-full bg-yellow-500" />
                 Surplus {summary?.surplusHrs ? `(${summary.surplusHrs}h)` : ''}
               </span>
               <span className="inline-flex items-center gap-1.5 rounded-md bg-red-50 px-2.5 py-1 font-semibold text-red-800 border border-red-200">

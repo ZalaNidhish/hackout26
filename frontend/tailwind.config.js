@@ -1,5 +1,6 @@
 /** @type {import('tailwindcss').Config} */
 export default {
+  darkMode: 'class',
   content: ['./index.html', './src/**/*.{js,jsx}'],
   theme: {
     extend: {
@@ -8,9 +9,9 @@ export default {
         navy: '#0f172a',
         rust: '#ea580c',
         rustbg: '#ffedd5',
-        surplus: '#ea580c',
-        surplusbg: '#ffedd5',
-        slate: '#1e3a5f',
+        surplus: '#ca8a04',
+        surplusbg: '#fef9c3',
+        steel: '#1e3a5f',
         border: '#e2e8f0',
         ok: '#16a34a',
         okbg: '#dcfce7',

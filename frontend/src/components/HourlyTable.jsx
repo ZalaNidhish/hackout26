@@ -53,7 +53,7 @@ function getActionIcon(actionText = '') {
     return <BatteryCharging size={13} className="shrink-0 text-amber-600" />
   }
   if (t.includes('curtail') || t.includes('market') || t.includes('dam') || t.includes('sell') || t.includes('rtm')) {
-    return <TrendingUp size={13} className="shrink-0 text-orange-600" />
+    return <TrendingUp size={13} className="shrink-0 text-yellow-600" />
   }
   if (t.includes('procure') || t.includes('shortage') || t.includes('deficit') || t.includes('buy') || t.includes('peak')) {
     return <AlertTriangle size={13} className="shrink-0 text-red-600" />
@@ -234,8 +234,8 @@ export default function HourlyTable({ points, loading }) {
       {/* Top Header & Analytics Banner */}
       <div className="flex flex-col gap-4 border-b border-border/70 p-4 sm:p-5 lg:flex-row lg:items-center lg:justify-between">
         <div className="flex items-start gap-3">
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-slate/20 bg-slate-50 text-slate shadow-sm">
-            <CalendarClock size={20} className="text-slate" />
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-steel/20 bg-slate-50 text-steel shadow-sm">
+            <CalendarClock size={20} className="text-steel" />
           </div>
           <div>
             <div className="flex flex-wrap items-center gap-2">
@@ -254,10 +254,10 @@ export default function HourlyTable({ points, loading }) {
         <div className="flex flex-wrap items-center gap-2">
           {/* Surplus Chip */}
           <div
-            className="flex items-center gap-1.5 rounded-lg border border-orange-200 bg-orange-50/80 px-2.5 py-1 text-xs font-semibold text-orange-800"
+            className="flex items-center gap-1.5 rounded-lg border border-yellow-200 bg-yellow-50/80 px-2.5 py-1 text-xs font-semibold text-yellow-800"
             title="Total hours with generation exceeding committed demand"
           >
-            <span className="h-2 w-2 rounded-full bg-orange-500 shadow-sm shadow-orange-500/50" />
+            <span className="h-2 w-2 rounded-full bg-yellow-500 shadow-sm shadow-yellow-500/50" />
             <span>Surplus: {stats.surplus}h</span>
           </div>
 
@@ -286,7 +286,7 @@ export default function HourlyTable({ points, loading }) {
             onClick={handleExportCsv}
             disabled={!points || points.length === 0}
             title="Export full hourly schedule to CSV"
-            className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm transition-all hover:border-slate/40 hover:bg-slate-50 hover:text-navy focus:outline-none focus:ring-2 focus:ring-slate/20 disabled:cursor-not-allowed disabled:opacity-50"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm transition-all hover:border-steel/40 hover:bg-slate-50 hover:text-navy focus:outline-none focus:ring-2 focus:ring-steel/20 disabled:cursor-not-allowed disabled:opacity-50"
           >
             <Download size={13} className="text-slate-500" />
             <span className="hidden xs:inline">Export CSV</span>
@@ -318,7 +318,7 @@ export default function HourlyTable({ points, loading }) {
                 className={`rounded-lg px-2.5 py-1 text-xs font-semibold transition-all ${
                   statusFilter === 'all'
                     ? 'bg-navy text-white shadow-sm'
-                    : 'bg-white text-slate-600 border border-border hover:border-slate/30 hover:bg-slate-100'
+                    : 'bg-white text-slate-600 border border-border hover:border-steel/30 hover:bg-slate-100'
                 }`}
               >
                 All ({stats.total})
@@ -328,11 +328,11 @@ export default function HourlyTable({ points, loading }) {
                 onClick={() => setStatusFilter('surplus')}
                 className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-semibold transition-all ${
                   statusFilter === 'surplus'
-                    ? 'bg-orange-500 text-white shadow-sm shadow-orange-500/20'
-                    : 'bg-white text-orange-800 border border-orange-200 hover:bg-orange-50'
+                    ? 'bg-yellow-500 text-white shadow-sm shadow-yellow-500/20'
+                    : 'bg-white text-yellow-800 border border-yellow-200 hover:bg-yellow-50'
                 }`}
               >
-                <span className={`h-1.5 w-1.5 rounded-full ${statusFilter === 'surplus' ? 'bg-white' : 'bg-orange-500'}`} />
+                <span className={`h-1.5 w-1.5 rounded-full ${statusFilter === 'surplus' ? 'bg-white' : 'bg-yellow-500'}`} />
                 Surplus ({stats.surplus})
               </button>
 
@@ -407,7 +407,7 @@ export default function HourlyTable({ points, loading }) {
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   placeholder="Search hour, action..."
-                  className="w-36 sm:w-44 rounded-lg border border-border bg-white py-1 pl-8 pr-7 text-xs text-navy placeholder:text-slate-400 focus:border-slate focus:outline-none focus:ring-1 focus:ring-slate/20"
+                  className="w-36 sm:w-44 rounded-lg border border-border bg-white py-1 pl-8 pr-7 text-xs text-navy placeholder:text-slate-400 focus:border-steel focus:outline-none focus:ring-1 focus:ring-steel/20"
                 />
                 {searchQuery && (
                   <button
@@ -427,7 +427,7 @@ export default function HourlyTable({ points, loading }) {
                     setHorizonFilter('all')
                     setSearchQuery('')
                   }}
-                  className="rounded-lg border border-dashed border-border px-2 py-1 text-xs font-medium text-slate-500 hover:border-slate hover:text-navy"
+                  className="rounded-lg border border-dashed border-border px-2 py-1 text-xs font-medium text-slate-500 hover:border-steel hover:text-navy"
                   title="Reset all filters"
                 >
                   Reset
@@ -539,7 +539,7 @@ export default function HourlyTable({ points, loading }) {
                     if (isShortage) {
                       rowBg = 'bg-red-50/20 hover:bg-red-50/40 transition-colors'
                     } else if (isSurplus) {
-                      rowBg = 'bg-orange-50/15 hover:bg-orange-50/35 transition-colors'
+                      rowBg = 'bg-yellow-50/15 hover:bg-yellow-50/35 transition-colors'
                     }
 
                     // Spread calculation for uncertainty bar
@@ -572,7 +572,7 @@ export default function HourlyTable({ points, loading }) {
                         {/* 4. P50 Expected (+ micro spread) */}
                         <td className="whitespace-nowrap px-4 py-2.5 text-right">
                           <div className="inline-flex flex-col items-end leading-tight">
-                            <span className="font-mono font-bold text-slate text-[13px]">
+                            <span className="font-mono font-bold text-steel text-[13px]">
                               {p50Num !== null ? p50Num.toFixed(1) : '—'}{' '}
                               <span className="text-[10px] text-slate-400 font-sans font-normal">MW</span>
                             </span>
